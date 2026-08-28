@@ -1,0 +1,10 @@
+# Normaliza line endings para LF no repositório
+* text=auto eol=lf
+
+# Arquivos binários
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
