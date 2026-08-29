@@ -21,13 +21,15 @@ await app.register(cors, { origin: true });
 app.get('/health', async () => ({ status: 'ok' }));
 app.get('/', async () => ({ status: 'ok', service: 'triconta-api' }));
 
-// Routes
-await app.register(groupRoutes, { prefix: '/groups' });
-await app.register(memberRoutes, { prefix: '/groups/:groupId/members' });
-await app.register(categoryRoutes, { prefix: '/groups/:groupId/categories' });
-await app.register(expenseRoutes, { prefix: '/groups/:groupId/expenses' });
-await app.register(settlementRoutes, { prefix: '/groups/:groupId/settlements' });
-await app.register(balanceRoutes, { prefix: '/groups/:groupId/balances' });
+// Routes (registered with and without /api prefix for maximum resilience)
+for (const prefix of ['', '/api']) {
+  await app.register(groupRoutes, { prefix: `${prefix}/groups` });
+  await app.register(memberRoutes, { prefix: `${prefix}/groups/:groupId/members` });
+  await app.register(categoryRoutes, { prefix: `${prefix}/groups/:groupId/categories` });
+  await app.register(expenseRoutes, { prefix: `${prefix}/groups/:groupId/expenses` });
+  await app.register(settlementRoutes, { prefix: `${prefix}/groups/:groupId/settlements` });
+  await app.register(balanceRoutes, { prefix: `${prefix}/groups/:groupId/balances` });
+}
 
 // Global error handler
 app.setErrorHandler((error, req, reply) => {
