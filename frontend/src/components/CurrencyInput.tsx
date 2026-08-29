@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { formatInputBRL } from '../utils/currency';
 
 interface Props {
@@ -10,6 +10,10 @@ interface Props {
 
 export default function CurrencyInput({ value, onChange, placeholder = '0,00', id }: Props) {
   const [displayValue, setDisplayValue] = useState(() => formatInputBRL(value));
+
+  useEffect(() => {
+    setDisplayValue(formatInputBRL(value));
+  }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/\D/g, '');
