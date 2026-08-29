@@ -1,6 +1,6 @@
 import { db } from '../db/connection.js';
 import { expenses, expenseSplits, members, settlements } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 export interface MemberBalance {
   memberId: string;
@@ -17,33 +17,46 @@ export interface SuggestedSettlement {
 }
 
 /**
- * Returns the fraction (0..1) of installments that are due up to and including
- * asOfYearMonth (YYYY-MM). Defaults to the current month.
+ * Converts a YYYY-MM string to an absolute month number (year*12 + 0-based month).
+ * Used for month comparisons.
+ */
+function toAbsMonth(ym: string): number {
+  const [y, m] = ym.split('-').map(Number);
+  return y * 12 + (m - 1);
+}
+
+/**
+ * Returns the current month as YYYY-MM.
+ */
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * For a given expense, returns the fraction (0..1) of its amount that is
+ * "due" up to and including asOfYearMonth.
+ *
+ * - Non-installment expenses: 1 if expenseDate <= asOfYearMonth, else 0.
+ * - Installment expenses: (passed installments / total installments).
+ *   Example: R$600 in 6x starting July, asOf = September → 3/6.
  */
 function installmentRatio(
   expenseDate: string,
   installments: number | null,
-  asOfYearMonth?: string,
+  asOfYearMonth: string,
 ): number {
-  if (!installments || installments <= 1) return 1;
+  const expenseYM = expenseDate.slice(0, 7); // 'YYYY-MM'
+  const cutoff = toAbsMonth(asOfYearMonth);
 
-  let cutoffAbsMonth: number;
-  if (asOfYearMonth) {
-    const [cy, cm] = asOfYearMonth.split('-').map(Number);
-    cutoffAbsMonth = cy * 12 + (cm - 1);
-  } else {
-    const today = new Date();
-    cutoffAbsMonth = today.getFullYear() * 12 + today.getMonth();
+  // Non-installment: only count if the expense is on or before the cutoff month
+  if (!installments || installments <= 1) {
+    return toAbsMonth(expenseYM) <= cutoff ? 1 : 0;
   }
 
-  const [y, m] = expenseDate.split('-').map(Number);
-  const startAbsMonth = y * 12 + (m - 1);
-
-  const passed = Math.min(
-    Math.max(0, cutoffAbsMonth - startAbsMonth + 1),
-    installments,
-  );
-
+  // Installment: count how many installments have passed by the cutoff month
+  const startAbsMonth = toAbsMonth(expenseYM);
+  const passed = Math.min(Math.max(0, cutoff - startAbsMonth + 1), installments);
   return passed / installments;
 }
 
@@ -51,6 +64,8 @@ export async function calculateBalances(
   groupId: string,
   asOfMonth?: string,
 ): Promise<MemberBalance[]> {
+  const cutoffMonth = asOfMonth ?? currentYearMonth();
+
   const groupMembers = await db.query.members.findMany({
     where: eq(members.groupId, groupId),
   });
@@ -69,29 +84,39 @@ export async function calculateBalances(
     balanceMap.set(member.id, 0);
   }
 
-  // Add payments (payer gets credit) and deduct splits
+  // Credit payer and debit each participant for their effective share up to cutoffMonth.
+  // For installments: only the installments due up to cutoffMonth are counted.
+  // Unpaid installments from previous months carry forward naturally since we sum
+  // all installments up to the cutoff and subtract only settled amounts.
   for (const expense of groupExpenses) {
-    const ratio = installmentRatio(expense.expenseDate, expense.installments, asOfMonth);
+    const ratio = installmentRatio(expense.expenseDate, expense.installments, cutoffMonth);
+    if (ratio === 0) continue;
 
     const effectiveTotal = Math.round(expense.amountCents * ratio);
 
-    const current = balanceMap.get(expense.paidById) ?? 0;
-    balanceMap.set(expense.paidById, current + effectiveTotal);
+    balanceMap.set(expense.paidById, (balanceMap.get(expense.paidById) ?? 0) + effectiveTotal);
 
     for (const split of expense.splits) {
       const effectiveSplit = Math.round(split.amountCents * ratio);
-      const curr = balanceMap.get(split.memberId) ?? 0;
-      balanceMap.set(split.memberId, curr - effectiveSplit);
+      balanceMap.set(split.memberId, (balanceMap.get(split.memberId) ?? 0) - effectiveSplit);
     }
   }
 
-  // Apply settlements
+  // Apply only settlements that were registered on or before the cutoff month.
+  // This ensures future settlements don't affect past-month balances, and that
+  // unpaid debts correctly carry forward into subsequent months.
   for (const settlement of groupSettlements) {
-    const fromCurrent = balanceMap.get(settlement.fromMemberId) ?? 0;
-    balanceMap.set(settlement.fromMemberId, fromCurrent - settlement.amountCents);
+    const settlementYM = settlement.settlementDate.slice(0, 7);
+    if (settlementYM > cutoffMonth) continue; // future settlement — ignore
 
-    const toCurrent = balanceMap.get(settlement.toMemberId) ?? 0;
-    balanceMap.set(settlement.toMemberId, toCurrent + settlement.amountCents);
+    balanceMap.set(
+      settlement.fromMemberId,
+      (balanceMap.get(settlement.fromMemberId) ?? 0) - settlement.amountCents,
+    );
+    balanceMap.set(
+      settlement.toMemberId,
+      (balanceMap.get(settlement.toMemberId) ?? 0) + settlement.amountCents,
+    );
   }
 
   return groupMembers.map((member) => ({
@@ -113,12 +138,10 @@ export function simplifyDebts(balances: MemberBalance[]): SuggestedSettlement[] 
     }
   }
 
-  // Sort descending
   creditors.sort((a, b) => b.amount - a.amount);
   debtors.sort((a, b) => b.amount - a.amount);
 
   const suggestions: SuggestedSettlement[] = [];
-
   let ci = 0;
   let di = 0;
 
