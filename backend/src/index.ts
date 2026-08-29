@@ -11,7 +11,7 @@ import { balanceRoutes } from './routes/balances.js';
 import { db } from './db/connection.js';
 import { categories } from './db/schema.js';
 import { DEFAULT_CATEGORIES } from './routes/categories.js';
-import { isNull } from 'drizzle-orm';
+import { isNull, sql } from 'drizzle-orm';
 
 const app = Fastify({ logger: true });
 
@@ -50,7 +50,22 @@ async function seedDefaultCategories() {
   }
 }
 
+async function waitForDatabase(retries = 10, delayMs = 3000): Promise<void> {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      await db.execute(sql`SELECT 1`);
+      console.log('Database connection established.');
+      return;
+    } catch (err) {
+      console.log(`Database not ready (attempt ${i}/${retries}), retrying in ${delayMs / 1000}s...`);
+      if (i === retries) throw err;
+      await new Promise((res) => setTimeout(res, delayMs));
+    }
+  }
+}
+
 try {
+  await waitForDatabase();
   console.log('Running database migrations...');
   await migrate(db, { migrationsFolder: './src/db/migrations' });
   console.log('Migrations complete.');
