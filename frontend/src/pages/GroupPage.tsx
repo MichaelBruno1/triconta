@@ -1,12 +1,13 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Plus, ArrowLeft, Users, DollarSign, History, Trash2, UserPlus, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Plus, ArrowLeft, Users, DollarSign, History, Trash2, UserPlus, ChevronLeft, ChevronRight, Calendar, CheckCircle, HandCoins } from 'lucide-react';
 import { useGroup } from '../hooks/useGroups';
 import { useMembers } from '../hooks/useMembers';
 import { useExpenses } from '../hooks/useExpenses';
 import { useBalances } from '../hooks/useBalances';
 import BalanceSummary from '../components/BalanceSummary';
 import SuggestedSettlements from '../components/SuggestedSettlements';
+import CurrencyInput from '../components/CurrencyInput';
 import { formatBRL } from '../utils/currency';
 import { api } from '../api/client';
 import type { Expense, Settlement } from '../types';
@@ -191,6 +192,55 @@ export default function GroupPage() {
     await api.deleteSettlement(groupId, id);
     loadSettlements();
     refetchBalances();
+  };
+
+  const [showAddSettlement, setShowAddSettlement] = useState(false);
+  const [settlementFrom, setSettlementFrom] = useState('');
+  const [settlementTo, setSettlementTo] = useState('');
+  const [settlementAmount, setSettlementAmount] = useState<number>(0);
+  const [settlementDateInput, setSettlementDateInput] = useState(() => new Date().toISOString().slice(0, 10));
+  const [settlementNotesInput, setSettlementNotesInput] = useState('');
+  const [settlingManual, setSettlingManual] = useState(false);
+
+  const handleManualSettlement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupId || !settlementFrom || !settlementTo || settlementAmount <= 0) {
+      alert('Selecione quem pagou, quem recebeu e um valor maior que zero.');
+      return;
+    }
+    if (settlementFrom === settlementTo) {
+      alert('O pagador e o recebedor devem ser membros diferentes.');
+      return;
+    }
+    setSettlingManual(true);
+    try {
+      await api.createSettlement(groupId, {
+        fromMemberId: settlementFrom,
+        toMemberId: settlementTo,
+        amountCents: settlementAmount,
+        settlementDate: settlementDateInput || new Date().toISOString().slice(0, 10),
+        notes: settlementNotesInput.trim() || undefined,
+      });
+      setShowAddSettlement(false);
+      setSettlementAmount(0);
+      setSettlementNotesInput('');
+      handleSettled();
+    } catch (err) {
+      alert('Erro ao registrar acerto.');
+    } finally {
+      setSettlingManual(false);
+    }
+  };
+
+  const handleOpenManualSettlement = (fromId?: string, toId?: string, defaultAmountCents?: number) => {
+    if (members.length >= 2) {
+      setSettlementFrom(fromId || members[0]?.id || '');
+      setSettlementTo(toId || members[1]?.id || '');
+    }
+    setSettlementAmount(defaultAmountCents || 0);
+    setSettlementDateInput(new Date().toISOString().slice(0, 10));
+    setSettlementNotesInput('');
+    setShowAddSettlement(true);
   };
 
   const handleSettled = () => {
@@ -447,12 +497,80 @@ export default function GroupPage() {
             </button>
           </div>
 
+          {/* Manual Settlement Modal / Card */}
+          {showAddSettlement && (
+            <div className="card animate-slide-up" style={{ marginBottom: '20px', border: '1px solid var(--accent)', background: 'var(--bg-card)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <span style={{ fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <HandCoins size={18} color="var(--accent)" /> Registrar Pagamento / Acerto
+                </span>
+                <button type="button" className="btn btn-ghost btn-icon" onClick={() => setShowAddSettlement(false)}>✕</button>
+              </div>
+
+              <form onSubmit={handleManualSettlement} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Quem pagou:</label>
+                    <select value={settlementFrom} onChange={(e) => setSettlementFrom(e.target.value)} required>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id} disabled={m.id === settlementTo}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Para quem:</label>
+                    <select value={settlementTo} onChange={(e) => setSettlementTo(e.target.value)} required>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id} disabled={m.id === settlementFrom}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Valor pago:</label>
+                    <CurrencyInput value={settlementAmount} onChange={setSettlementAmount} placeholder="0,00" />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Data:</label>
+                    <input type="date" value={settlementDateInput} onChange={(e) => setSettlementDateInput(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Observação (opcional):</label>
+                  <input type="text" placeholder="Ex: Pix, adiantamento, parcial..." value={settlementNotesInput} onChange={(e) => setSettlementNotesInput(e.target.value)} maxLength={100} />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddSettlement(false)}>Cancelar</button>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={settlingManual || settlementAmount <= 0}>
+                    {settlingManual ? <div className="loading-spinner" style={{ width: 14, height: 14 }} /> : <><CheckCircle size={14} /> Salvar Pagamento</>}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
           {bLoading ? <div className="skeleton" style={{ height: 200 }} /> : (
             <>
               <p className="section-title" style={{ marginBottom: '14px' }}>Saldos individuais</p>
               <BalanceSummary balances={balances} />
               <div className="divider" style={{ margin: '20px 0' }} />
-              <p className="section-title" style={{ marginBottom: '14px' }}>Acertos sugeridos</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <p className="section-title" style={{ margin: 0 }}>Acertos sugeridos</p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                  onClick={() => handleOpenManualSettlement()}
+                >
+                  <Plus size={13} /> Outro acerto
+                </button>
+              </div>
               <SuggestedSettlements groupId={groupId!} settlements={suggested} onSettled={handleSettled} />
             </>
           )}
@@ -461,6 +579,74 @@ export default function GroupPage() {
 
       {activeTab === 'settlements' && (
         <div className="animate-fade-in">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => handleOpenManualSettlement()}
+            >
+              <Plus size={15} /> Registrar Acerto
+            </button>
+          </div>
+
+          {/* Manual Settlement Modal / Card under settlements tab */}
+          {showAddSettlement && (
+            <div className="card animate-slide-up" style={{ marginBottom: '20px', border: '1px solid var(--accent)', background: 'var(--bg-card)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <span style={{ fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <HandCoins size={18} color="var(--accent)" /> Registrar Pagamento / Acerto
+                </span>
+                <button type="button" className="btn btn-ghost btn-icon" onClick={() => setShowAddSettlement(false)}>✕</button>
+              </div>
+
+              <form onSubmit={handleManualSettlement} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Quem pagou:</label>
+                    <select value={settlementFrom} onChange={(e) => setSettlementFrom(e.target.value)} required>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id} disabled={m.id === settlementTo}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Para quem:</label>
+                    <select value={settlementTo} onChange={(e) => setSettlementTo(e.target.value)} required>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id} disabled={m.id === settlementFrom}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label">Valor pago:</label>
+                    <CurrencyInput value={settlementAmount} onChange={setSettlementAmount} placeholder="0,00" />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Data:</label>
+                    <input type="date" value={settlementDateInput} onChange={(e) => setSettlementDateInput(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Observação (opcional):</label>
+                  <input type="text" placeholder="Ex: Pix, adiantamento, parcial..." value={settlementNotesInput} onChange={(e) => setSettlementNotesInput(e.target.value)} maxLength={100} />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddSettlement(false)}>Cancelar</button>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={settlingManual || settlementAmount <= 0}>
+                    {settlingManual ? <div className="loading-spinner" style={{ width: 14, height: 14 }} /> : <><CheckCircle size={14} /> Salvar Pagamento</>}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
           {!settlementsLoaded ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}><div className="loading-spinner" /></div>
           ) : settlements.length === 0 ? (
