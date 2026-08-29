@@ -108,11 +108,12 @@ export default function GroupPage() {
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [settlementsLoaded, setSettlementsLoaded] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentYearMonth());
+  const [selectedBalanceMonth, setSelectedBalanceMonth] = useState<string>(currentYearMonth());
 
   const { group, loading: gLoading, refetch: refetchGroup } = useGroup(groupId!);
   const { members, refetch: refetchMembers } = useMembers(groupId!);
   const { expenses, loading: eLoading, refetch: refetchExpenses } = useExpenses(groupId!);
-  const { balances, suggested, loading: bLoading, refetch: refetchBalances } = useBalances(groupId!);
+  const { balances, suggested, loading: bLoading, refetch: refetchBalances } = useBalances(groupId!, selectedBalanceMonth);
 
   // Expand installment expenses into one entry per month
   const displayExpenses = useMemo(() => expandExpenses(expenses), [expenses]);
@@ -401,6 +402,51 @@ export default function GroupPage() {
 
       {activeTab === 'balances' && (
         <div className="animate-fade-in">
+          {/* Month Navigator */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '20px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: '10px 16px',
+          }}>
+            <button
+              className="btn btn-ghost btn-icon"
+              onClick={() => {
+                const [y, m] = selectedBalanceMonth.split('-').map(Number);
+                const d = new Date(y, m - 2, 1);
+                setSelectedBalanceMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+              }}
+            >
+              <ChevronLeft size={18} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+              <Calendar size={15} color="var(--accent)" />
+              <span>{formatYearMonth(selectedBalanceMonth)}</span>
+              {selectedBalanceMonth === currentYearMonth() && (
+                <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>Atual</span>
+              )}
+              {selectedBalanceMonth > currentYearMonth() && (
+                <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>Projeção</span>
+              )}
+            </div>
+
+            <button
+              className="btn btn-ghost btn-icon"
+              onClick={() => {
+                const [y, m] = selectedBalanceMonth.split('-').map(Number);
+                const d = new Date(y, m, 1);
+                setSelectedBalanceMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+              }}
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+
           {bLoading ? <div className="skeleton" style={{ height: 200 }} /> : (
             <>
               <p className="section-title" style={{ marginBottom: '14px' }}>Saldos individuais</p>

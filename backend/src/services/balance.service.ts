@@ -18,31 +18,39 @@ export interface SuggestedSettlement {
 
 /**
  * Returns the fraction (0..1) of installments that are due up to and including
- * the current month. For non-installment expenses, returns 1.
- *
- * Example: R$700 in 6x starting July 2026.
- * - In August 2026: 2 of 6 installments have passed → ratio = 2/6
- * - In January 2027: all 6 passed → ratio = 1
+ * asOfYearMonth (YYYY-MM). Defaults to the current month.
  */
-function installmentRatio(expenseDate: string, installments: number | null): number {
+function installmentRatio(
+  expenseDate: string,
+  installments: number | null,
+  asOfYearMonth?: string,
+): number {
   if (!installments || installments <= 1) return 1;
 
-  const today = new Date();
-  // Use year*12 + month (0-indexed) arithmetic to compare months correctly
-  const todayAbsMonth = today.getFullYear() * 12 + today.getMonth();
+  let cutoffAbsMonth: number;
+  if (asOfYearMonth) {
+    const [cy, cm] = asOfYearMonth.split('-').map(Number);
+    cutoffAbsMonth = cy * 12 + (cm - 1);
+  } else {
+    const today = new Date();
+    cutoffAbsMonth = today.getFullYear() * 12 + today.getMonth();
+  }
 
   const [y, m] = expenseDate.split('-').map(Number);
   const startAbsMonth = y * 12 + (m - 1);
 
   const passed = Math.min(
-    Math.max(0, todayAbsMonth - startAbsMonth + 1),
+    Math.max(0, cutoffAbsMonth - startAbsMonth + 1),
     installments,
   );
 
   return passed / installments;
 }
 
-export async function calculateBalances(groupId: string): Promise<MemberBalance[]> {
+export async function calculateBalances(
+  groupId: string,
+  asOfMonth?: string,
+): Promise<MemberBalance[]> {
   const groupMembers = await db.query.members.findMany({
     where: eq(members.groupId, groupId),
   });
@@ -63,15 +71,13 @@ export async function calculateBalances(groupId: string): Promise<MemberBalance[
 
   // Add payments (payer gets credit) and deduct splits
   for (const expense of groupExpenses) {
-    const ratio = installmentRatio(expense.expenseDate, expense.installments);
+    const ratio = installmentRatio(expense.expenseDate, expense.installments, asOfMonth);
 
-    // Only the effective (already-due) amount counts toward the balance
     const effectiveTotal = Math.round(expense.amountCents * ratio);
 
     const current = balanceMap.get(expense.paidById) ?? 0;
     balanceMap.set(expense.paidById, current + effectiveTotal);
 
-    // Deduct each participant's share proportionally
     for (const split of expense.splits) {
       const effectiveSplit = Math.round(split.amountCents * ratio);
       const curr = balanceMap.get(split.memberId) ?? 0;

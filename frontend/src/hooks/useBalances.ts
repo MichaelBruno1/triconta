@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
 import type { MemberBalance, SuggestedSettlement } from '../types';
 
-export function useBalances(groupId: string) {
+export function useBalances(groupId: string, month?: string) {
   const [balances, setBalances] = useState<MemberBalance[]>([]);
   const [suggested, setSuggested] = useState<SuggestedSettlement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -13,8 +13,8 @@ export function useBalances(groupId: string) {
     try {
       setLoading(true);
       const [b, s] = await Promise.all([
-        api.getBalances(groupId),
-        api.getSuggestedSettlements(groupId),
+        api.getBalances(groupId, month),
+        api.getSuggestedSettlements(groupId, month),
       ]);
       setBalances(b);
       setSuggested(s);
@@ -23,7 +23,7 @@ export function useBalances(groupId: string) {
     } finally {
       setLoading(false);
     }
-  }, [groupId]);
+  }, [groupId, month]);
 
   useEffect(() => { fetchBalances(); }, [fetchBalances]);
 

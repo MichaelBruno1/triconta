@@ -56,10 +56,14 @@ export const api = {
     request<void>(`/groups/${groupId}/expenses/${id}`, { method: 'DELETE' }),
 
   // Balances
-  getBalances: (groupId: string) =>
-    request<import('../types').MemberBalance[]>(`/groups/${groupId}/balances`),
-  getSuggestedSettlements: (groupId: string) =>
-    request<import('../types').SuggestedSettlement[]>(`/groups/${groupId}/balances/settlements`),
+  getBalances: (groupId: string, month?: string) => {
+    const qs = month ? `?month=${month}` : '';
+    return request<import('../types').MemberBalance[]>(`/groups/${groupId}/balances${qs}`);
+  },
+  getSuggestedSettlements: (groupId: string, month?: string) => {
+    const qs = month ? `?month=${month}` : '';
+    return request<import('../types').SuggestedSettlement[]>(`/groups/${groupId}/balances/settlements${qs}`);
+  },
 
   // Settlements
   getSettlements: (groupId: string) =>
