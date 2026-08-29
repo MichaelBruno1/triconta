@@ -19,6 +19,7 @@ await app.register(cors, { origin: true });
 
 // Health check
 app.get('/health', async () => ({ status: 'ok' }));
+app.get('/', async () => ({ status: 'ok', service: 'triconta-api' }));
 
 // Routes
 await app.register(groupRoutes, { prefix: '/groups' });
