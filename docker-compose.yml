@@ -9,7 +9,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       NODE_ENV: ${NODE_ENV}
-      API_PORT: ${API_PORT}
+      # Porta interna fixa — comunicação container-to-container sempre em 3000.
+      # Para expor no host com outra porta, adicione: ports: ["PORTA_HOST:3000"]
+      API_PORT: "3000"
     networks:
       - homelab_net
 
@@ -18,8 +20,6 @@ services:
       context: .
       dockerfile: nginx/Dockerfile
     restart: unless-stopped
-    environment:
-      API_PORT: ${API_PORT}
     depends_on:
       - api
     networks:

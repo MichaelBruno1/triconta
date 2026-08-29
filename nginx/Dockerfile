@@ -9,8 +9,6 @@ RUN npm run build
 # Stage 2: Nginx with built frontend
 FROM nginx:alpine
 COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
-# Copia como template — envsubst substitui ${API_PORT} na inicialização
-COPY nginx/nginx.conf /etc/nginx/nginx.conf.template
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
 EXPOSE 80
-# Substitui variáveis de ambiente no template antes de iniciar o nginx
-CMD ["/bin/sh", "-c", "envsubst '${API_PORT}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]
