@@ -109,13 +109,15 @@ export async function calculateBalances(
     const settlementYM = settlement.settlementDate.slice(0, 7);
     if (settlementYM > cutoffMonth) continue; // future settlement — ignore
 
+    // The payer (fromMemberId) settles their debt -> balance increases (+) toward zero
     balanceMap.set(
       settlement.fromMemberId,
-      (balanceMap.get(settlement.fromMemberId) ?? 0) - settlement.amountCents,
+      (balanceMap.get(settlement.fromMemberId) ?? 0) + settlement.amountCents,
     );
+    // The receiver (toMemberId) was paid -> pending credit decreases (-) toward zero
     balanceMap.set(
       settlement.toMemberId,
-      (balanceMap.get(settlement.toMemberId) ?? 0) + settlement.amountCents,
+      (balanceMap.get(settlement.toMemberId) ?? 0) - settlement.amountCents,
     );
   }
 
