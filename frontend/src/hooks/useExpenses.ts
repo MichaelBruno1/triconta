@@ -12,8 +12,9 @@ export function useExpenses(groupId: string) {
     try {
       setLoading(true);
       const data = await api.getExpenses(groupId);
-      setExpenses(data);
+      setExpenses(Array.isArray(data) ? data : []);
     } catch (err) {
+      setExpenses([]);
       setError(err instanceof Error ? err.message : 'Erro ao carregar despesas');
     } finally {
       setLoading(false);

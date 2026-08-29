@@ -12,8 +12,9 @@ export function useMembers(groupId: string) {
     try {
       setLoading(true);
       const data = await api.getMembers(groupId);
-      setMembers(data);
+      setMembers(Array.isArray(data) ? data : []);
     } catch (err) {
+      setMembers([]);
       setError(err instanceof Error ? err.message : 'Erro ao carregar membros');
     } finally {
       setLoading(false);

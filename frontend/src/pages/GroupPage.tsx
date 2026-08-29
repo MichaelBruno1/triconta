@@ -24,10 +24,12 @@ interface DisplayExpense extends Omit<Expense, 'id'> {
  * Expands installment expenses into one DisplayExpense entry per month.
  * Non-installment expenses pass through unchanged.
  */
-function expandExpenses(expenses: Expense[]): DisplayExpense[] {
+function expandExpenses(expenses: Expense[] = []): DisplayExpense[] {
   const result: DisplayExpense[] = [];
+  if (!Array.isArray(expenses)) return result;
 
   for (const expense of expenses) {
+    if (!expense || !expense.expenseDate) continue;
     const n = expense.installments ?? 1;
 
     if (n <= 1) {

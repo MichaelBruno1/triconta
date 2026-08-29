@@ -16,9 +16,11 @@ export function useBalances(groupId: string, month?: string) {
         api.getBalances(groupId, month),
         api.getSuggestedSettlements(groupId, month),
       ]);
-      setBalances(b);
-      setSuggested(s);
+      setBalances(Array.isArray(b) ? b : []);
+      setSuggested(Array.isArray(s) ? s : []);
     } catch (err) {
+      setBalances([]);
+      setSuggested([]);
       setError(err instanceof Error ? err.message : 'Erro ao calcular saldos');
     } finally {
       setLoading(false);
