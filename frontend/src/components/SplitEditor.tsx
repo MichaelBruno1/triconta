@@ -13,18 +13,55 @@ export interface SplitData {
 interface Props {
   members: Member[];
   totalCents: number;
+  initialSplitData?: SplitData;
   onChange: (data: SplitData) => void;
 }
 
-export default function SplitEditor({ members, totalCents, onChange }: Props) {
-  const [splitType, setSplitType] = useState<SplitType>('equal');
-  const [selected, setSelected] = useState<string[]>(members.map((m) => m.id));
-  const [exactAmounts, setExactAmounts] = useState<Record<string, number>>({});
-  const [percentages, setPercentages] = useState<Record<string, number>>({});
+export default function SplitEditor({ members, totalCents, initialSplitData, onChange }: Props) {
+  const [splitType, setSplitType] = useState<SplitType>(() => initialSplitData?.splitType ?? 'equal');
+  const [selected, setSelected] = useState<string[]>(() => initialSplitData?.participantIds ?? members.map((m) => m.id));
+  const [exactAmounts, setExactAmounts] = useState<Record<string, number>>(() => {
+    if (initialSplitData?.splitType === 'exact' && initialSplitData.splits) {
+      const map: Record<string, number> = {};
+      for (const s of initialSplitData.splits) map[s.memberId] = s.amountCents;
+      return map;
+    }
+    return {};
+  });
+  const [percentages, setPercentages] = useState<Record<string, number>>(() => {
+    if (initialSplitData?.splitType === 'percentage' && initialSplitData.splits) {
+      const map: Record<string, number> = {};
+      for (const s of initialSplitData.splits) map[s.memberId] = s.percentage ?? 0;
+      return map;
+    }
+    return {};
+  });
 
   useEffect(() => {
-    setSelected(members.map((m) => m.id));
-  }, [members]);
+    if (!initialSplitData) {
+      setSelected(members.map((m) => m.id));
+    }
+  }, [members, initialSplitData]);
+
+  useEffect(() => {
+    if (!initialSplitData) return;
+    setSplitType(initialSplitData.splitType);
+    if (initialSplitData.splitType === 'equal' && initialSplitData.participantIds) {
+      setSelected(initialSplitData.participantIds);
+    } else if (initialSplitData.splitType === 'exact' && initialSplitData.splits) {
+      const exactMap: Record<string, number> = {};
+      for (const s of initialSplitData.splits) {
+        exactMap[s.memberId] = s.amountCents;
+      }
+      setExactAmounts(exactMap);
+    } else if (initialSplitData.splitType === 'percentage' && initialSplitData.splits) {
+      const percentMap: Record<string, number> = {};
+      for (const s of initialSplitData.splits) {
+        percentMap[s.memberId] = s.percentage ?? 0;
+      }
+      setPercentages(percentMap);
+    }
+  }, [initialSplitData]);
 
   useEffect(() => {
     if (splitType === 'equal') {

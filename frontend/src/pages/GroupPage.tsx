@@ -413,7 +413,18 @@ export default function GroupPage() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {filteredExpenses.map((expense) => (
-                <div key={expense.id} className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                <div
+                  key={expense.id}
+                  className="card card-hover"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    transition: 'var(--transition)',
+                  }}
+                  onClick={() => navigate(`/groups/${groupId}/expenses/${expense.originalId}/edit`)}
+                >
                   <div style={{
                     width: 42, height: 42, flexShrink: 0,
                     background: 'rgba(59,130,246,0.12)',
@@ -442,7 +453,14 @@ export default function GroupPage() {
                       )}
                     </div>
                   </div>
-                  <button className="btn btn-ghost btn-icon" onClick={() => handleDeleteExpense(expense.originalId, expense.installments ?? undefined)}>
+                  <button
+                    className="btn btn-ghost btn-icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteExpense(expense.originalId, expense.installments ?? undefined);
+                    }}
+                    title="Excluir despesa"
+                  >
                     <Trash2 size={15} color="var(--danger)" />
                   </button>
                 </div>

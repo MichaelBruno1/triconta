@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import CurrencyInput from '../components/CurrencyInput';
 import SplitEditor, { type SplitData } from '../components/SplitEditor';
 import { useMembers } from '../hooks/useMembers';
@@ -9,6 +9,7 @@ import type { Category } from '../types';
 
 export default function AddExpensePage() {
   const { groupId, expenseId } = useParams<{ groupId: string; expenseId?: string }>();
+  const isEditing = Boolean(expenseId);
   const navigate = useNavigate();
   const { members } = useMembers(groupId!);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -20,7 +21,9 @@ export default function AddExpensePage() {
   const [categoryId, setCategoryId] = useState('');
   const [installments, setInstallments] = useState<number | undefined>();
   const [splitData, setSplitData] = useState<SplitData>({ splitType: 'equal', participantIds: [] });
+  const [initialSplitData, setInitialSplitData] = useState<SplitData | undefined>();
   const [saving, setSaving] = useState(false);
+  const [loadingExpense, setLoadingExpense] = useState(isEditing);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -28,8 +31,47 @@ export default function AddExpensePage() {
   }, [groupId]);
 
   useEffect(() => {
-    if (members.length > 0 && !paidById) setPaidById(members[0].id);
-  }, [members]);
+    if (groupId && expenseId) {
+      setLoadingExpense(true);
+      api.getExpense(groupId, expenseId)
+        .then((exp) => {
+          setDescription(exp.description);
+          setAmountCents(exp.amountCents);
+          setPaidById(exp.paidById);
+          setExpenseDate(exp.expenseDate);
+          setCategoryId(exp.categoryId ?? '');
+          setInstallments(exp.installments ?? undefined);
+
+          const sType = exp.splitType as 'equal' | 'percentage' | 'exact';
+          let loadedSplits: SplitData;
+          if (sType === 'equal') {
+            const pIds = exp.splits?.map((s) => s.memberId) ?? [];
+            loadedSplits = { splitType: 'equal', participantIds: pIds };
+          } else {
+            const sList = exp.splits?.map((s) => ({
+              memberId: s.memberId,
+              amountCents: s.amountCents,
+              percentage: s.percentage ? Number(s.percentage) : undefined,
+            })) ?? [];
+            loadedSplits = { splitType: sType, splits: sList };
+          }
+          setSplitData(loadedSplits);
+          setInitialSplitData(loadedSplits);
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : 'Erro ao carregar despesa');
+        })
+        .finally(() => {
+          setLoadingExpense(false);
+        });
+    }
+  }, [groupId, expenseId]);
+
+  useEffect(() => {
+    if (!isEditing && members.length > 0 && !paidById) {
+      setPaidById(members[0].id);
+    }
+  }, [members, isEditing, paidById]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +94,12 @@ export default function AddExpensePage() {
         installments: installments || null,
         ...(splitData.splitType === 'equal' ? { participantIds: splitData.participantIds } : { splits: splitData.splits }),
       };
-      await api.createExpense(groupId!, payload);
+
+      if (isEditing && expenseId) {
+        await api.updateExpense(groupId!, expenseId, payload);
+      } else {
+        await api.createExpense(groupId!, payload);
+      }
       navigate(`/groups/${groupId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar despesa');
@@ -61,11 +108,44 @@ export default function AddExpensePage() {
     }
   };
 
+  const handleDelete = async () => {
+    const msg = installments && installments > 1
+      ? `Excluir esta despesa parcelada (${installments}x)? Todas as parcelas serão removidas.`
+      : 'Excluir esta despesa?';
+    if (!confirm(msg)) return;
+
+    setSaving(true);
+    try {
+      await api.deleteExpense(groupId!, expenseId!);
+      navigate(`/groups/${groupId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir despesa');
+      setSaving(false);
+    }
+  };
+
+  if (loadingExpense) {
+    return (
+      <div className="animate-fade-in" style={{ maxWidth: 600, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="skeleton" style={{ height: 40, width: 200 }} />
+        <div className="skeleton" style={{ height: 260, borderRadius: 'var(--radius)' }} />
+        <div className="skeleton" style={{ height: 180, borderRadius: 'var(--radius)' }} />
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in" style={{ maxWidth: 600, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px' }}>
-        <button className="btn btn-ghost btn-icon" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>
-        <h1 style={{ fontWeight: 800, fontSize: '1.4rem' }}>Nova Despesa</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button className="btn btn-ghost btn-icon" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>
+          <h1 style={{ fontWeight: 800, fontSize: '1.4rem' }}>{isEditing ? 'Editar Despesa' : 'Nova Despesa'}</h1>
+        </div>
+        {isEditing && (
+          <button type="button" className="btn btn-danger btn-sm" onClick={handleDelete} disabled={saving} title="Excluir despesa">
+            <Trash2 size={15} /> Excluir
+          </button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -82,7 +162,7 @@ export default function AddExpensePage() {
             <CurrencyInput id="amount" value={amountCents} onChange={setAmountCents} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="paid-by">Pago por *</label>
               <select id="paid-by" value={paidById} onChange={(e) => setPaidById(e.target.value)} required>
@@ -96,7 +176,7 @@ export default function AddExpensePage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="category">Categoria</label>
               <select id="category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
@@ -114,7 +194,9 @@ export default function AddExpensePage() {
                   onChange={(e) => setInstallments(e.target.value ? parseInt(e.target.value) : undefined)}
                   placeholder="1 (à vista)"
                 />
-                {installments && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.82rem', pointerEvents: 'none' }}>x</span>}
+                {installments && installments > 1 && (
+                  <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.82rem', pointerEvents: 'none' }}>x</span>
+                )}
               </div>
             </div>
           </div>
@@ -122,7 +204,13 @@ export default function AddExpensePage() {
 
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <h2 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-secondary)' }}>Divisão</h2>
-          <SplitEditor members={members} totalCents={amountCents} onChange={setSplitData} />
+          <SplitEditor
+            key={initialSplitData ? 'loaded' : 'pending'}
+            members={members}
+            totalCents={amountCents}
+            initialSplitData={initialSplitData}
+            onChange={setSplitData}
+          />
         </div>
 
         {error && <div style={{ padding: '12px 16px', background: 'var(--danger-bg)', borderRadius: 'var(--radius-sm)', color: 'var(--danger)', fontSize: '0.9rem' }}>{error}</div>}
@@ -130,7 +218,7 @@ export default function AddExpensePage() {
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-secondary" onClick={() => navigate(-1)}>Cancelar</button>
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? <div className="loading-spinner" /> : <><Save size={16} /> Salvar Despesa</>}
+            {saving ? <div className="loading-spinner" /> : <><Save size={16} /> {isEditing ? 'Salvar Alterações' : 'Salvar Despesa'}</>}
           </button>
         </div>
       </form>

@@ -3,7 +3,7 @@ import { db } from '../db/connection.js';
 import { expenses, expenseSplits } from '../db/schema.js';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { z } from 'zod';
-import { createExpenseWithSplits } from '../services/expense.service.js';
+import { createExpenseWithSplits, updateExpenseWithSplits } from '../services/expense.service.js';
 import { NotFoundError } from '../utils/errors.js';
 
 const splitSchema = z.object({
@@ -55,21 +55,10 @@ export async function expenseRoutes(app: FastifyInstance) {
     return expense;
   });
 
-  // Update expense — delete splits and recreate
+  // Update expense
   app.put<{ Params: { groupId: string; id: string } }>('/:id', async (req) => {
     const body = createExpenseSchema.parse(req.body);
-    const existing = await db.query.expenses.findFirst({
-      where: and(eq(expenses.id, req.params.id), eq(expenses.groupId, req.params.groupId)),
-    });
-    if (!existing) throw new NotFoundError('Expense not found');
-
-    await db.delete(expenseSplits).where(eq(expenseSplits.expenseId, req.params.id));
-    await db
-      .update(expenses)
-      .set({ ...body, groupId: req.params.groupId, updatedAt: new Date() })
-      .where(eq(expenses.id, req.params.id));
-
-    const updated = await createExpenseWithSplits({
+    const updated = await updateExpenseWithSplits(req.params.id, {
       ...body,
       groupId: req.params.groupId,
     });
