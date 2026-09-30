@@ -64,6 +64,10 @@ export const api = {
     const qs = month ? `?month=${month}` : '';
     return request<import('../types').SuggestedSettlement[]>(`/groups/${groupId}/balances/settlements${qs}`);
   },
+  getMemberBalanceBreakdown: (groupId: string, memberId: string, month?: string) => {
+    const qs = month ? `?month=${month}` : '';
+    return request<import('../types').MemberBalanceBreakdown>(`/groups/${groupId}/balances/${memberId}${qs}`);
+  },
 
   // Settlements
   getSettlements: (groupId: string) =>

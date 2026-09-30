@@ -578,7 +578,7 @@ export default function GroupPage() {
           {bLoading ? <div className="skeleton" style={{ height: 200 }} /> : (
             <>
               <p className="section-title" style={{ marginBottom: '14px' }}>Saldos individuais</p>
-              <BalanceSummary balances={balances} />
+              <BalanceSummary balances={balances} groupId={groupId} selectedMonth={selectedBalanceMonth} />
               <div className="divider" style={{ margin: '20px 0' }} />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                 <p className="section-title" style={{ margin: 0 }}>Acertos sugeridos</p>

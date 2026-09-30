@@ -8,7 +8,7 @@
     "start": "node dist/index.js",
     "migrate": "drizzle-kit migrate",
     "generate": "drizzle-kit generate",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

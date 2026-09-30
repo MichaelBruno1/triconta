@@ -74,3 +74,34 @@ export interface SuggestedSettlement {
   toMemberName: string;
   amountCents: number;
 }
+
+export interface MemberBalanceDetailItem {
+  id: string;
+  type: 'expense' | 'settlement';
+  description: string;
+  date: string;
+  category?: { name: string; icon: string } | null;
+  installments?: {
+    currentCount: number;
+    totalCount: number;
+  } | null;
+  totalAmountCents: number;
+  effectiveAmountCents: number;
+  paidByMemberCents: number;
+  memberShareCents: number;
+  netImpactCents: number;
+  role: 'paid_and_shared' | 'paid_only' | 'shared_only' | 'settlement_sent' | 'settlement_received';
+  notes?: string | null;
+}
+
+export interface MemberBalanceBreakdown {
+  memberId: string;
+  memberName: string;
+  asOfMonth: string;
+  totalPaidExpensesCents: number;
+  totalOwedSplitsCents: number;
+  totalSettlementsPaidCents: number;
+  totalSettlementsReceivedCents: number;
+  netBalanceCents: number;
+  items: MemberBalanceDetailItem[];
+}

@@ -1,6 +1,7 @@
 import { db } from '../db/connection.js';
 import { expenses, expenseSplits, members, settlements } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import { NotFoundError } from '../utils/errors.js';
 
 export interface MemberBalance {
   memberId: string;
@@ -170,4 +171,188 @@ export function simplifyDebts(balances: MemberBalance[]): SuggestedSettlement[] 
   }
 
   return suggestions;
+}
+
+export interface MemberBalanceDetailItem {
+  id: string;
+  type: 'expense' | 'settlement';
+  description: string;
+  date: string;
+  category?: { name: string; icon: string } | null;
+  installments?: {
+    currentCount: number;
+    totalCount: number;
+  } | null;
+  totalAmountCents: number;
+  effectiveAmountCents: number;
+  paidByMemberCents: number;
+  memberShareCents: number;
+  netImpactCents: number;
+  role: 'paid_and_shared' | 'paid_only' | 'shared_only' | 'settlement_sent' | 'settlement_received';
+  notes?: string | null;
+}
+
+export interface MemberBalanceBreakdown {
+  memberId: string;
+  memberName: string;
+  asOfMonth: string;
+  totalPaidExpensesCents: number;
+  totalOwedSplitsCents: number;
+  totalSettlementsPaidCents: number;
+  totalSettlementsReceivedCents: number;
+  netBalanceCents: number;
+  items: MemberBalanceDetailItem[];
+}
+
+export async function getMemberBalanceBreakdown(
+  groupId: string,
+  memberId: string,
+  asOfMonth?: string,
+): Promise<MemberBalanceBreakdown> {
+  const member = await db.query.members.findFirst({
+    where: and(eq(members.id, memberId), eq(members.groupId, groupId)),
+  });
+  if (!member) throw new NotFoundError('Member not found');
+
+  const cutoffMonth = asOfMonth ?? currentYearMonth();
+
+  const groupExpenses = await db.query.expenses.findMany({
+    where: eq(expenses.groupId, groupId),
+    with: { splits: true, category: true, paidBy: true },
+    orderBy: (expenses, { desc }) => [desc(expenses.expenseDate), desc(expenses.createdAt)],
+  });
+
+  const groupSettlements = await db.query.settlements.findMany({
+    where: eq(settlements.groupId, groupId),
+    with: { fromMember: true, toMember: true },
+    orderBy: (settlements, { desc }) => [desc(settlements.settlementDate), desc(settlements.createdAt)],
+  });
+
+  const items: MemberBalanceDetailItem[] = [];
+  let totalPaidExpensesCents = 0;
+  let totalOwedSplitsCents = 0;
+  let totalSettlementsPaidCents = 0;
+  let totalSettlementsReceivedCents = 0;
+
+  for (const exp of groupExpenses) {
+    const ratio = installmentRatio(exp.expenseDate, exp.installments, cutoffMonth);
+    if (ratio === 0) continue;
+
+    const effectiveTotal = Math.round(exp.amountCents * ratio);
+    const isPayer = exp.paidById === memberId;
+    const paidByMemberCents = isPayer ? effectiveTotal : 0;
+
+    const split = exp.splits.find((s) => s.memberId === memberId);
+    const memberShareCents = split ? Math.round(split.amountCents * ratio) : 0;
+
+    if (paidByMemberCents === 0 && memberShareCents === 0) {
+      continue;
+    }
+
+    const netImpactCents = paidByMemberCents - memberShareCents;
+    totalPaidExpensesCents += paidByMemberCents;
+    totalOwedSplitsCents += memberShareCents;
+
+    let role: MemberBalanceDetailItem['role'];
+    if (isPayer && memberShareCents > 0) {
+      role = 'paid_and_shared';
+    } else if (isPayer) {
+      role = 'paid_only';
+    } else {
+      role = 'shared_only';
+    }
+
+    let installmentsInfo: MemberBalanceDetailItem['installments'] = null;
+    if (exp.installments && exp.installments > 1) {
+      const expenseYM = exp.expenseDate.slice(0, 7);
+      const cutoff = toAbsMonth(cutoffMonth);
+      const startAbsMonth = toAbsMonth(expenseYM);
+      const passed = Math.min(Math.max(0, cutoff - startAbsMonth + 1), exp.installments);
+      installmentsInfo = {
+        currentCount: passed,
+        totalCount: exp.installments,
+      };
+    }
+
+    items.push({
+      id: exp.id,
+      type: 'expense',
+      description: exp.description,
+      date: exp.expenseDate,
+      category: exp.category ? { name: exp.category.name, icon: exp.category.icon } : null,
+      installments: installmentsInfo,
+      totalAmountCents: exp.amountCents,
+      effectiveAmountCents: effectiveTotal,
+      paidByMemberCents,
+      memberShareCents,
+      netImpactCents,
+      role,
+    });
+  }
+
+  for (const st of groupSettlements) {
+    const settlementYM = st.settlementDate.slice(0, 7);
+    if (settlementYM > cutoffMonth) continue;
+
+    const isFrom = st.fromMemberId === memberId;
+    const isTo = st.toMemberId === memberId;
+
+    if (!isFrom && !isTo) continue;
+
+    if (isFrom) {
+      totalSettlementsPaidCents += st.amountCents;
+      items.push({
+        id: st.id,
+        type: 'settlement',
+        description: `Acerto pago para ${st.toMember?.name ?? 'Membro'}`,
+        date: st.settlementDate,
+        category: null,
+        installments: null,
+        totalAmountCents: st.amountCents,
+        effectiveAmountCents: st.amountCents,
+        paidByMemberCents: st.amountCents,
+        memberShareCents: 0,
+        netImpactCents: st.amountCents,
+        role: 'settlement_sent',
+        notes: st.notes,
+      });
+    } else {
+      totalSettlementsReceivedCents += st.amountCents;
+      items.push({
+        id: st.id,
+        type: 'settlement',
+        description: `Acerto recebido de ${st.fromMember?.name ?? 'Membro'}`,
+        date: st.settlementDate,
+        category: null,
+        installments: null,
+        totalAmountCents: st.amountCents,
+        effectiveAmountCents: st.amountCents,
+        paidByMemberCents: 0,
+        memberShareCents: st.amountCents,
+        netImpactCents: -st.amountCents,
+        role: 'settlement_received',
+        notes: st.notes,
+      });
+    }
+  }
+
+  items.sort((a, b) => b.date.localeCompare(a.date));
+
+  const netBalanceCents =
+    totalPaidExpensesCents -
+    totalOwedSplitsCents +
+    totalSettlementsPaidCents -
+    totalSettlementsReceivedCents;
+
+  return {
+    memberId: member.id,
+    memberName: member.name,
+    asOfMonth: cutoffMonth,
+    totalPaidExpensesCents,
+    totalOwedSplitsCents,
+    totalSettlementsPaidCents,
+    totalSettlementsReceivedCents,
+    netBalanceCents,
+    items,
+  };
 }

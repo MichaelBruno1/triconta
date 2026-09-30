@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { calculateBalances, simplifyDebts } from '../services/balance.service.js';
+import { calculateBalances, simplifyDebts, getMemberBalanceBreakdown } from '../services/balance.service.js';
 
 export async function balanceRoutes(app: FastifyInstance) {
   app.get<{ Params: { groupId: string }; Querystring: { month?: string } }>(
@@ -14,6 +14,13 @@ export async function balanceRoutes(app: FastifyInstance) {
     async (req) => {
       const balances = await calculateBalances(req.params.groupId, req.query.month);
       return simplifyDebts(balances);
+    },
+  );
+
+  app.get<{ Params: { groupId: string; memberId: string }; Querystring: { month?: string } }>(
+    '/:memberId',
+    async (req) => {
+      return getMemberBalanceBreakdown(req.params.groupId, req.params.memberId, req.query.month);
     },
   );
 }
