@@ -162,6 +162,27 @@ export default function BalanceSummary({ balances, groupId, selectedMonth }: Pro
                       gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
                       gap: '8px',
                     }}>
+                      {breakdown.previousBalanceCents !== 0 && (
+                        <div style={{
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '10px',
+                        }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                            Saldo anterior acum.
+                          </div>
+                          <div style={{
+                            fontSize: '1rem',
+                            fontWeight: 700,
+                            color: breakdown.previousBalanceCents > 0 ? 'var(--teal)' : 'var(--danger)',
+                            marginTop: '2px',
+                          }}>
+                            {breakdown.previousBalanceCents < 0 ? '-' : '+'}{formatBRL(Math.abs(breakdown.previousBalanceCents))}
+                          </div>
+                        </div>
+                      )}
+
                       <div style={{
                         background: 'rgba(255,255,255,0.03)',
                         border: '1px solid var(--border)',
@@ -169,10 +190,10 @@ export default function BalanceSummary({ balances, groupId, selectedMonth }: Pro
                         padding: '10px',
                       }}>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                          Pago em compras
+                          Pago no mês
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--teal)', marginTop: '2px' }}>
-                          {formatBRL(breakdown.totalPaidExpensesCents)}
+                          {formatBRL(breakdown.monthPaidExpensesCents ?? breakdown.totalPaidExpensesCents)}
                         </div>
                       </div>
 
@@ -183,10 +204,10 @@ export default function BalanceSummary({ balances, groupId, selectedMonth }: Pro
                         padding: '10px',
                       }}>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                          Sua parte (consumo)
+                          Sua parte no mês
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--danger)', marginTop: '2px' }}>
-                          {formatBRL(breakdown.totalOwedSplitsCents)}
+                          {formatBRL(breakdown.monthOwedSplitsCents ?? breakdown.totalOwedSplitsCents)}
                         </div>
                       </div>
 
@@ -198,7 +219,7 @@ export default function BalanceSummary({ balances, groupId, selectedMonth }: Pro
                           padding: '10px',
                         }}>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                            Acertos / Pagos
+                            Acertos no mês
                           </div>
                           <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)', marginTop: '2px' }}>
                             {formatBRL(breakdown.totalSettlementsPaidCents - breakdown.totalSettlementsReceivedCents)}
@@ -213,7 +234,7 @@ export default function BalanceSummary({ balances, groupId, selectedMonth }: Pro
                         padding: '10px',
                       }}>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                          Saldo Líquido
+                          Saldo Total
                         </div>
                         <div style={{
                           fontSize: '1rem',
@@ -236,16 +257,16 @@ export default function BalanceSummary({ balances, groupId, selectedMonth }: Pro
                         marginBottom: '4px',
                       }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                          Composição detalhada ({breakdown.items.length})
+                          Despesas e Acertos do Mês ({breakdown.items.length})
                         </span>
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          Impacto no saldo
+                          Impacto no mês
                         </span>
                       </div>
 
                       {breakdown.items.length === 0 ? (
                         <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                          Nenhuma despesa ou acerto registrado para este membro.
+                          Nenhuma despesa ou acerto registrado para este membro no mês selecionado.
                         </div>
                       ) : (
                         breakdown.items.map((item) => {

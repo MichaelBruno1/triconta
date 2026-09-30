@@ -98,10 +98,16 @@ export interface MemberBalanceBreakdown {
   memberId: string;
   memberName: string;
   asOfMonth: string;
+  previousBalanceCents: number;
   totalPaidExpensesCents: number;
   totalOwedSplitsCents: number;
   totalSettlementsPaidCents: number;
   totalSettlementsReceivedCents: number;
+  monthPaidExpensesCents: number;
+  monthOwedSplitsCents: number;
+  monthSettlementsPaidCents: number;
+  monthSettlementsReceivedCents: number;
+  monthNetCents: number;
   netBalanceCents: number;
   items: MemberBalanceDetailItem[];
 }

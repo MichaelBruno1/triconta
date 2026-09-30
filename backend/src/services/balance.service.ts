@@ -196,12 +196,24 @@ export interface MemberBalanceBreakdown {
   memberId: string;
   memberName: string;
   asOfMonth: string;
+  previousBalanceCents: number;
   totalPaidExpensesCents: number;
   totalOwedSplitsCents: number;
   totalSettlementsPaidCents: number;
   totalSettlementsReceivedCents: number;
+  monthPaidExpensesCents: number;
+  monthOwedSplitsCents: number;
+  monthSettlementsPaidCents: number;
+  monthSettlementsReceivedCents: number;
+  monthNetCents: number;
   netBalanceCents: number;
   items: MemberBalanceDetailItem[];
+}
+
+function prevYearMonth(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export async function getMemberBalanceBreakdown(
@@ -214,8 +226,14 @@ export async function getMemberBalanceBreakdown(
   });
   if (!member) throw new NotFoundError('Member not found');
 
-  const cutoffMonth = asOfMonth ?? currentYearMonth();
+  const targetMonth = asOfMonth ?? currentYearMonth();
 
+  // 1. Calculate previous balance accumulated from previous months
+  const prevMonth = prevYearMonth(targetMonth);
+  const prevBalances = await calculateBalances(groupId, prevMonth);
+  const previousBalanceCents = prevBalances.find((b) => b.memberId === memberId)?.balanceCents ?? 0;
+
+  // 2. Fetch expenses and settlements for the group
   const groupExpenses = await db.query.expenses.findMany({
     where: eq(expenses.groupId, groupId),
     with: { splits: true, category: true, paidBy: true },
@@ -229,70 +247,123 @@ export async function getMemberBalanceBreakdown(
   });
 
   const items: MemberBalanceDetailItem[] = [];
-  let totalPaidExpensesCents = 0;
-  let totalOwedSplitsCents = 0;
-  let totalSettlementsPaidCents = 0;
-  let totalSettlementsReceivedCents = 0;
+  let monthPaidExpensesCents = 0;
+  let monthOwedSplitsCents = 0;
+  let monthSettlementsPaidCents = 0;
+  let monthSettlementsReceivedCents = 0;
 
   for (const exp of groupExpenses) {
-    const ratio = installmentRatio(exp.expenseDate, exp.installments, cutoffMonth);
-    if (ratio === 0) continue;
-
-    const effectiveTotal = Math.round(exp.amountCents * ratio);
     const isPayer = exp.paidById === memberId;
-    const paidByMemberCents = isPayer ? effectiveTotal : 0;
-
     const split = exp.splits.find((s) => s.memberId === memberId);
-    const memberShareCents = split ? Math.round(split.amountCents * ratio) : 0;
 
-    if (paidByMemberCents === 0 && memberShareCents === 0) {
+    // If member is neither payer nor participant, skip
+    if (!isPayer && !split) {
       continue;
     }
 
-    const netImpactCents = paidByMemberCents - memberShareCents;
-    totalPaidExpensesCents += paidByMemberCents;
-    totalOwedSplitsCents += memberShareCents;
+    const isNonInstallment = !exp.installments || exp.installments <= 1;
 
-    let role: MemberBalanceDetailItem['role'];
-    if (isPayer && memberShareCents > 0) {
-      role = 'paid_and_shared';
-    } else if (isPayer) {
-      role = 'paid_only';
+    if (isNonInstallment) {
+      // Must be in the selected month
+      if (exp.expenseDate.slice(0, 7) !== targetMonth) {
+        continue;
+      }
+
+      const paidByMemberCents = isPayer ? exp.amountCents : 0;
+      const memberShareCents = split ? split.amountCents : 0;
+      const netImpactCents = paidByMemberCents - memberShareCents;
+
+      monthPaidExpensesCents += paidByMemberCents;
+      monthOwedSplitsCents += memberShareCents;
+
+      let role: MemberBalanceDetailItem['role'];
+      if (isPayer && memberShareCents > 0) {
+        role = 'paid_and_shared';
+      } else if (isPayer) {
+        role = 'paid_only';
+      } else {
+        role = 'shared_only';
+      }
+
+      items.push({
+        id: exp.id,
+        type: 'expense',
+        description: exp.description,
+        date: exp.expenseDate,
+        category: exp.category ? { name: exp.category.name, icon: exp.category.icon } : null,
+        installments: null,
+        totalAmountCents: exp.amountCents,
+        effectiveAmountCents: exp.amountCents,
+        paidByMemberCents,
+        memberShareCents,
+        netImpactCents,
+        role,
+      });
     } else {
-      role = 'shared_only';
-    }
+      // Installment expense: check if an installment falls into targetMonth
+      const n = exp.installments!;
+      const startAbs = toAbsMonth(exp.expenseDate.slice(0, 7));
+      const targetAbs = toAbsMonth(targetMonth);
+      const diff = targetAbs - startAbs;
 
-    let installmentsInfo: MemberBalanceDetailItem['installments'] = null;
-    if (exp.installments && exp.installments > 1) {
-      const expenseYM = exp.expenseDate.slice(0, 7);
-      const cutoff = toAbsMonth(cutoffMonth);
-      const startAbsMonth = toAbsMonth(expenseYM);
-      const passed = Math.min(Math.max(0, cutoff - startAbsMonth + 1), exp.installments);
-      installmentsInfo = {
-        currentCount: passed,
-        totalCount: exp.installments,
-      };
-    }
+      // Outside installment range -> skip
+      if (diff < 0 || diff >= n) {
+        continue;
+      }
 
-    items.push({
-      id: exp.id,
-      type: 'expense',
-      description: exp.description,
-      date: exp.expenseDate,
-      category: exp.category ? { name: exp.category.name, icon: exp.category.icon } : null,
-      installments: installmentsInfo,
-      totalAmountCents: exp.amountCents,
-      effectiveAmountCents: effectiveTotal,
-      paidByMemberCents,
-      memberShareCents,
-      netImpactCents,
-      role,
-    });
+      const currentInstallmentNumber = diff + 1;
+
+      // Installment amount
+      const baseTotal = Math.floor(exp.amountCents / n);
+      const remainderTotal = exp.amountCents - baseTotal * n;
+      const installmentAmount = currentInstallmentNumber === 1 ? baseTotal + remainderTotal : baseTotal;
+
+      const paidByMemberCents = isPayer ? installmentAmount : 0;
+
+      let memberShareCents = 0;
+      if (split) {
+        const baseSplit = Math.floor(split.amountCents / n);
+        const remainderSplit = split.amountCents - baseSplit * n;
+        memberShareCents = currentInstallmentNumber === 1 ? baseSplit + remainderSplit : baseSplit;
+      }
+
+      const netImpactCents = paidByMemberCents - memberShareCents;
+      monthPaidExpensesCents += paidByMemberCents;
+      monthOwedSplitsCents += memberShareCents;
+
+      let role: MemberBalanceDetailItem['role'];
+      if (isPayer && memberShareCents > 0) {
+        role = 'paid_and_shared';
+      } else if (isPayer) {
+        role = 'paid_only';
+      } else {
+        role = 'shared_only';
+      }
+
+      items.push({
+        id: exp.id,
+        type: 'expense',
+        description: exp.description,
+        date: exp.expenseDate,
+        category: exp.category ? { name: exp.category.name, icon: exp.category.icon } : null,
+        installments: {
+          currentCount: currentInstallmentNumber,
+          totalCount: n,
+        },
+        totalAmountCents: exp.amountCents,
+        effectiveAmountCents: installmentAmount,
+        paidByMemberCents,
+        memberShareCents,
+        netImpactCents,
+        role,
+      });
+    }
   }
 
   for (const st of groupSettlements) {
-    const settlementYM = st.settlementDate.slice(0, 7);
-    if (settlementYM > cutoffMonth) continue;
+    if (st.settlementDate.slice(0, 7) !== targetMonth) {
+      continue;
+    }
 
     const isFrom = st.fromMemberId === memberId;
     const isTo = st.toMemberId === memberId;
@@ -300,7 +371,7 @@ export async function getMemberBalanceBreakdown(
     if (!isFrom && !isTo) continue;
 
     if (isFrom) {
-      totalSettlementsPaidCents += st.amountCents;
+      monthSettlementsPaidCents += st.amountCents;
       items.push({
         id: st.id,
         type: 'settlement',
@@ -317,7 +388,7 @@ export async function getMemberBalanceBreakdown(
         notes: st.notes,
       });
     } else {
-      totalSettlementsReceivedCents += st.amountCents;
+      monthSettlementsReceivedCents += st.amountCents;
       items.push({
         id: st.id,
         type: 'settlement',
@@ -338,20 +409,28 @@ export async function getMemberBalanceBreakdown(
 
   items.sort((a, b) => b.date.localeCompare(a.date));
 
-  const netBalanceCents =
-    totalPaidExpensesCents -
-    totalOwedSplitsCents +
-    totalSettlementsPaidCents -
-    totalSettlementsReceivedCents;
+  const monthNetCents =
+    monthPaidExpensesCents -
+    monthOwedSplitsCents +
+    monthSettlementsPaidCents -
+    monthSettlementsReceivedCents;
+
+  const netBalanceCents = previousBalanceCents + monthNetCents;
 
   return {
     memberId: member.id,
     memberName: member.name,
-    asOfMonth: cutoffMonth,
-    totalPaidExpensesCents,
-    totalOwedSplitsCents,
-    totalSettlementsPaidCents,
-    totalSettlementsReceivedCents,
+    asOfMonth: targetMonth,
+    previousBalanceCents,
+    totalPaidExpensesCents: monthPaidExpensesCents,
+    totalOwedSplitsCents: monthOwedSplitsCents,
+    totalSettlementsPaidCents: monthSettlementsPaidCents,
+    totalSettlementsReceivedCents: monthSettlementsReceivedCents,
+    monthPaidExpensesCents,
+    monthOwedSplitsCents,
+    monthSettlementsPaidCents,
+    monthSettlementsReceivedCents,
+    monthNetCents,
     netBalanceCents,
     items,
   };
